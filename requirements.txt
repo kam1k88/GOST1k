@@ -1,0 +1,12 @@
+torch==2.6.0+cu124 ; sys_platform == "win32"
+torchaudio==2.6.0+cu124 ; sys_platform == "win32"
+torchvision==0.21.0+cu124 ; sys_platform == "win32"
+sentence-transformers==3.0.1
+chromadb==0.5.0  # uvloop не ставим, он POSIX-only
+striprtf==0.0.26
+streamlit==1.29.0
+requests>=2.28
+tqdm
+numpy>=1.22
+pdfminer.six
+python-docx
