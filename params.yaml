@@ -15,6 +15,6 @@ normalize_embeddings: true
 use_gpu: true
 
 ollama_url: "http://localhost:11434/api/generate"
-batch_size: 16
+batch_size: 64
 
 log_level: "INFO"

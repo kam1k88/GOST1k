@@ -1,58 +1,68 @@
+import os
 import chromadb
-from sentence_transformers import SentenceTransformer, CrossEncoder
-from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
-import torch
+from sentence_transformers import SentenceTransformer
 
 # === Настройки ===
-MODEL_EMBEDDING = "intfloat/multilingual-e5-small"
-MODEL_RERANK = "BAAI/bge-reranker-base"
-CHROMA_DIR = "chroma_db"
-TOP_K = 20
-TOP_N = 5
+CHROMA_DIR = r"C:\Users\kam1k88\GOST1k\chroma_db"
+EMBEDDING_MODEL = "intfloat/multilingual-e5-small"
+TOP_K = 3  # количество ближайших результатов
 
-# === Инициализация моделей ===
-retriever_model = SentenceTransformer(MODEL_EMBEDDING, device="cuda")
-reranker = CrossEncoder(MODEL_RERANK, device="cuda")
-embedding_fn = SentenceTransformerEmbeddingFunction(
-    model_name=MODEL_EMBEDDING,
-    device="cuda",
-    normalize_embeddings=True
-)
+# Отключаем телеметрию Chroma
+os.environ["CHROMA_TELEMETRY_ENABLED"] = "false"
 
-# === Новый клиент ChromaDB ===
+# === Инициализация модели и клиента ===
+embedding_model = SentenceTransformer(EMBEDDING_MODEL, device="cuda")
 client = chromadb.PersistentClient(path=CHROMA_DIR)
-collection = client.get_or_create_collection("gost1k", embedding_function=embedding_fn)
+collection = client.get_or_create_collection("gost1k")
 
-# === Поиск и реранк ===
-def search(query_text, streamlit_output=False):
-    if not streamlit_output:
-        print(f"[?] Запрос: {query_text}\n")
+print(f"[✓] Подключено к Chroma DB: {CHROMA_DIR}")
+print(f"[✓] Коллекция: gost1k (существует или создана)\n")
 
-    query = "query: " + query_text.strip()
-    q_emb = retriever_model.encode(query, normalize_embeddings=True)
+# === Поисковая функция ===
+def search(query: str, top_k: int = TOP_K, streamlit_output=False):
+    print(f"\n🔍 Запрос: {query}")
 
-    results = collection.query(query_embeddings=[q_emb], n_results=TOP_K, include=["documents", "metadatas", "ids"])
-    passages = results["documents"][0]
-    metadatas = results["metadatas"][0]
+    # Генерация эмбеддинга запроса
+    q_emb = embedding_model.encode(
+        [query],
+        normalize_embeddings=True,
+        convert_to_numpy=True
+    )
 
-    pairs = [(query_text, passage.replace("passage: ", "")) for passage in passages]
-    scores = reranker.predict(pairs)
+    # Преобразуем NumPy → list
+    q_emb = q_emb.tolist() if hasattr(q_emb, "tolist") else q_emb
 
-    reranked = sorted(zip(scores, passages, metadatas), key=lambda x: x[0], reverse=True)[:TOP_N]
+    # Запрос к Chroma (возвращаем векторы, а не расстояния)
+    results = collection.query(
+        query_embeddings=q_emb,
+        n_results=top_k,
+        include=["documents", "metadatas", "embeddings"]
+    )
 
+    # === Консольный вывод ===
+    for i, (doc, meta, emb) in enumerate(
+        zip(results["documents"][0], results["metadatas"][0], results["embeddings"][0]),
+        1
+    ):
+        snippet = doc[:200].replace("\n", " ")
+        emb_preview = ", ".join([f"{x:.4f}" for x in emb[:6]]) + " ..."
+        print(f"\n#{i}. {meta.get('source', '—')}")
+        print(f"   Вектор: [{emb_preview}]")
+        print(f"   Текст: {snippet}...")
+
+    # === Streamlit-вывод (если используется) ===
     if streamlit_output:
         import streamlit as st
-        for i, (score, passage, meta) in enumerate(reranked, 1):
-            st.markdown(f"**[{i}]** ({score:.4f}) `{meta['source']}`")
-            st.write(passage.strip())
-            st.markdown("---")
-    else:
-        for i, (score, passage, meta) in enumerate(reranked, 1):
-            print(f"[{i}] ({score:.4f}) {meta['source']} :: {passage[:200]}\n")
+        st.subheader("Результаты поиска:")
+        for i, (doc, meta, emb) in enumerate(
+            zip(results["documents"][0], results["metadatas"][0], results["embeddings"][0]),
+            1
+        ):
+            emb_preview = ", ".join([f"{x:.4f}" for x in emb[:6]]) + " ..."
+            st.markdown(f"**{i}. {meta.get('source', '—')}**")
+            st.caption(f"Вектор: [{emb_preview}]")
+            st.write(doc[:600] + "...")
 
+# === Пример ручного запуска ===
 if __name__ == "__main__":
-    import sys
-    if len(sys.argv) > 1:
-        search(" ".join(sys.argv[1:]))
-    else:
-        search("какие требования к защите информации")
+    search("требования к защите информации")
