@@ -1,79 +1,195 @@
 import os
+import re
+import asyncio
+import httpx
+from datetime import datetime
+from sentence_transformers import SentenceTransformer, CrossEncoder
 import chromadb
-from sentence_transformers import SentenceTransformer
-from openai import OpenAI
+import torch
 
-# === Настройки ===
-CHROMA_DIR = r"C:\Users\kam1k88\GOST1k\chroma_db"
-EMBEDDING_MODEL = "intfloat/multilingual-e5-small"
-LLM_MODEL = "Qwen2:7B-Instruct"  # имя модели в Ollama
-TOP_K = 8  # сколько документов подавать в контекст
+# === Общие настройки ===
+os.environ["CHROMA_TELEMETRY"] = "False"
 
-# Отключаем телеметрию Chroma
-os.environ["CHROMA_TELEMETRY_ENABLED"] = "false"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CHROMA_DIR = os.path.join(BASE_DIR, "chroma_db")
+COLLECTION_NAME = "gost1k"
+LOG_DIR = os.path.join(BASE_DIR, "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, "gost1k.log")
+
+# === Логирование ===
+def log_event(msg):
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with open(LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(f"[{ts}] {msg}\n")
+
+# === Определение устройства ===
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+print(f"[⚙️] Используется устройство: {DEVICE.upper()}")
 
 # === Инициализация моделей ===
-embedding_model = SentenceTransformer(EMBEDDING_MODEL, device="cuda")
-client_chroma = chromadb.PersistentClient(path=CHROMA_DIR)
-collection = client_chroma.get_or_create_collection("gost1k")
+embedder = SentenceTransformer("intfloat/multilingual-e5-small", device=DEVICE)
+reranker = CrossEncoder("BAAI/bge-reranker-base", device=DEVICE)
 
-# Подключаем локальный Ollama API (OpenAI-совместимый)
-client_llm = OpenAI(base_url="http://localhost:11434/v1", api_key="ollama")
+# === Инициализация клиента Chroma ===
+client = chromadb.PersistentClient(path=CHROMA_DIR)
+collection = client.get_or_create_collection(COLLECTION_NAME, embedding_function=None)
 
-print(f"[✓] Подключено к Chroma DB: {CHROMA_DIR}")
-print(f"[✓] Коллекция: gost1k (существует или создана)")
-print(f"[✓] Модель LLM: {LLM_MODEL}\n")
+# === Утилиты ===
+def clean_text(t):
+    t = re.sub(r"<[^>]+>", " ", t)
+    t = re.sub(r"\s+", " ", t)
+    return t.strip()
 
-# === Функция RAG-поиска ===
-def rag_query(query: str, top_k: int = TOP_K):
-    print(f"🔍 Запрос: {query}\n")
+def normalize_query(q: str) -> str:
+    """Добавляет E5-префикс для лучшего семантического поиска"""
+    return f"query: {q.strip().lower()}"
 
-    # 1️⃣ Получаем эмбеддинг запроса
-    q_emb = embedding_model.encode([query], normalize_embeddings=True, convert_to_numpy=True)
-    q_emb = q_emb.tolist() if hasattr(q_emb, "tolist") else q_emb
+def format_doc(d: str) -> str:
+    return f"passage: {d.strip()}"
 
-    # 2️⃣ Делаем поиск в Chroma
-    results = collection.query(
-        query_embeddings=q_emb,
-        n_results=top_k,
-        include=["documents", "metadatas"]
+
+# === Проверка коллекции ===
+def check_collection():
+    try:
+        print("[🧩] Проверка коллекции Chroma...")
+        count = collection.count()
+        print(f"[📦] Всего фрагментов: {count}")
+        peek = collection.peek()
+        if not peek or "documents" not in peek or not peek["documents"]:
+            print("[⚠️] Коллекция пуста или не содержит документов.")
+            return
+        doc = peek["documents"][0][0] if isinstance(peek["documents"][0], list) else peek["documents"][0]
+        meta = peek["metadatas"][0][0] if isinstance(peek["metadatas"][0], list) else peek["metadatas"][0]
+        print("[📄] Пример документа:\n", clean_text(doc[:300]))
+        print("[🗂️] Пример метаданных:\n", meta)
+    except Exception as e:
+        print(f"[❌] Ошибка при проверке коллекции: {e}")
+
+
+# === Поиск ===
+def dense_query(q, top_k=50):
+    """Dense-поиск по эмбеддингам E5"""
+    try:
+        q_emb = embedder.encode([normalize_query(q)], normalize_embeddings=True)
+        results = collection.query(query_embeddings=q_emb, n_results=top_k)
+        if not results.get("documents") or not results["documents"][0]:
+            print("[⚠️] Пустая коллекция или нет совпадений.")
+            return []
+        docs = [
+            {"text": d, "source": s}
+            for d, s in zip(results["documents"][0], results["metadatas"][0])
+        ]
+        return docs
+    except Exception as e:
+        print(f"[❌] Ошибка dense_query: {e}")
+        return []
+
+
+# === Реранкинг ===
+def rerank_docs(q, docs):
+    if not docs:
+        return []
+    pairs = [[normalize_query(q), format_doc(d["text"])] for d in docs]
+    scores = reranker.predict(pairs)
+    ranked = sorted(zip(docs, scores), key=lambda x: x[1], reverse=True)
+    return [r[0] for r in ranked]
+
+
+# === Генерация через Ollama ===
+async def ollama_generate(prompt, model="Qwen2:7b-instruct-q4_K_M"):
+    torch.cuda.empty_cache()
+    async with httpx.AsyncClient(timeout=300.0) as c:
+        try:
+            r = await c.post(
+                "http://127.0.0.1:11434/api/generate",
+                json={"model": model, "prompt": prompt, "stream": False},
+            )
+            data = r.json()
+            if "response" in data and data["response"].strip():
+                return data["response"].strip()
+            if "message" in data and isinstance(data["message"], dict):
+                return data["message"].get("content", "").strip()
+            text = data.get("output", "") or str(data)
+            if "CUDA error" in text:
+                print("[⚠️] CUDA error — fallback → Qwen2:1.5b-instruct")
+                torch.cuda.empty_cache()
+                return await ollama_generate(prompt, "Qwen2:1.5b-instruct")
+            return text.strip() if text else "[⚠️] Пустой ответ от Ollama"
+        except Exception as e:
+            if "CUDA" in str(e):
+                print("[⚠️] Ошибка CUDA — fallback → Qwen2:1.5b-instruct")
+                torch.cuda.empty_cache()
+                return await ollama_generate(prompt, "Qwen2:1.5b-instruct")
+            return f"[⚠️] Ollama недоступна: {e}"
+        finally:
+            torch.cuda.empty_cache()
+
+
+# === Основная логика RAG ===
+async def answer(query: str):
+    print(f"[🔍] Запрос: {query}")
+    sys_query = normalize_query(query)
+    print(f"[🧠] Сформировано: {sys_query}")
+    log_event(f"\n[USER QUERY] {query}")
+    log_event(f"[SYSTEM QUERY] {sys_query}")
+
+    docs = dense_query(sys_query)
+    print(f"[~] Найдено кандидатов: {len(docs)}")
+    log_event(f"[CHROMA] Найдено кандидатов: {len(docs)}")
+
+    if not docs:
+        msg = "[⚠️] Нет совпадений в коллекции."
+        print(msg)
+        log_event(msg)
+        return msg
+
+    reranked = rerank_docs(sys_query, docs)
+    top_docs = reranked[:5]
+
+    print("\n[🏆] Топ-5 фрагментов:")
+    for i, d in enumerate(top_docs, 1):
+        snippet = clean_text(d["text"][:150])
+        src = d.get("source", "?")
+        print(f"{i:>2}. {snippet} ...\n   [source={src}]")
+        log_event(f"[DOC {i}] {snippet} | source={src}")
+
+    context = "\n\n".join([clean_text(d["text"][:800]) for d in top_docs])
+
+    intro = (
+        "Ты — эксперт по информационной безопасности. "
+        "Отвечай строго в контексте нормативных документов ТК 362 'Защита информации'. "
+        "Опирайся на требования и рекомендации ГОСТ, СТО, РД. "
+        "Формулируй ответ кратко и по существу."
     )
 
-    docs = results["documents"][0]
-    metas = results["metadatas"][0]
+    wc = len(query.split())
+    mode = (
+        "reflective" if wc <= 3
+        else "structured" if wc <= 15
+        else "deep_analytic"
+    )
+    print(f"[🧩] Mode: {mode}")
 
-    # 3️⃣ Формируем контекст
-    context_blocks = []
-    for i, (doc, meta) in enumerate(zip(docs, metas), 1):
-        context_blocks.append(f"[{i}] Источник: {meta.get('source', '—')}\n{doc[:1000]}")
-    context = "\n\n".join(context_blocks)
+    prompt = f"""{intro}
 
-    # 4️⃣ Отправляем запрос в LLM (через Ollama)
-    prompt = f"""
-Ты — интеллектуальный ассистент, работающий с нормативными документами.
-Используй приведённые фрагменты ГОСТов как контекст.
-Если информации недостаточно, явно укажи это.
+Вопрос: {query}
 
 Контекст:
 {context}
 
-Вопрос: {query}
-Ответ:
-"""
-    response = client_llm.chat.completions.create(
-        model=LLM_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3,
-        max_tokens=800
-    )
+Ответ:"""
 
-    answer = response.choices[0].message.content.strip()
-    print("\n🧠 Ответ LLM:\n")
-    print(answer)
+    ans = await ollama_generate(prompt)
+    print(f"\n[💡] Ответ сгенерирован:\n{ans}")
+    log_event(f"[ANSWER | {mode}] {ans}\n{'='*80}\n")
 
-    return answer
+    torch.cuda.empty_cache()
+    return ans
 
 
-# === Пример запуска ===
+# === CLI ===
 if __name__ == "__main__":
-    rag_query("требования к защите информации при обработке персональных данных")
+    check_collection()
+    q = "аудит информационной безопасности и регистрация событий"
+    asyncio.run(answer(q))
