@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>ГОСТ1k</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      color: #e2e8f0;
+      background: url("./zzz.jpg") no-repeat center center fixed;
+      background-size: cover;
+      backdrop-filter: blur(6px);
+    }
+    h1 {
+      margin: 20px;
+      font-size: 3rem;
+      color: #fff;
+      text-shadow:
+        -2px -2px 0 #000,
+         2px -2px 0 #000,
+        -2px  2px 0 #000,
+         2px  2px 0 #000,
+         4px  4px 6px rgba(0,0,0,0.6);
+      letter-spacing: 1px;
+    }
+    #chat {
+      width: 80%;
+      max-width: 850px;
+      flex: 1;
+      overflow-y: auto;
+      background: rgba(15, 23, 42, 0.85);
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 0 20px rgba(0,0,0,0.4);
+    }
+    .msg {
+      margin-bottom: 18px;
+      animation: fadeIn 0.3s ease-in;
+    }
+    .user {
+      color: #22d3ee;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .bot {
+      background: rgba(51, 65, 85, 0.85);
+      border-radius: 10px;
+      padding: 10px 12px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      border-left: 3px solid #38bdf8;
+    }
+    #inputBox {
+      display: flex;
+      margin: 15px 0;
+      width: 80%;
+      max-width: 850px;
+      gap: 10px;
+    }
+    input {
+      flex: 1;
+      padding: 12px;
+      font-size: 1rem;
+      border: none;
+      border-radius: 8px;
+      outline: none;
+      background: rgba(255,255,255,0.9);
+      color: #0f172a;
+    }
+    button {
+      background: #38bdf8;
+      border: none;
+      color: #0f172a;
+      font-weight: 600;
+      padding: 0 20px;
+      font-size: 1rem;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background: #0ea5e9; }
+
+    #modeSwitch {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      color: #fff;
+      text-shadow: 1px 1px 2px #000;
+    }
+    select {
+      border-radius: 6px;
+      padding: 6px;
+      background: rgba(255,255,255,0.9);
+      color: #0f172a;
+      font-weight: 600;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(5px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+  <h1>ГОСТ1k</h1>
+
+  <div id="modeSwitch">
+    Режим: 
+    <select id="mode">
+      <option value="accurate">🧠 Точный</option>
+      <option value="fast">⚡ Быстрый</option>
+    </select>
+  </div>
+
+  <div id="chat"></div>
+
+  <div id="inputBox">
+    <input id="query" placeholder="Введите запрос (например: требования к маркировке кабеля)" />
+    <button onclick="ask()">Спросить</button>
+    🔁 Индексировать новые документы
+    <button onclick="fetch('http://localhost:8080/reindex', { method: 'POST' })">
+    </button>
+  </div>
+
+  <script>
+    const API_URL = "http://localhost:8080/query";
+    const chat = document.getElementById("chat");
+    const modeSelect = document.getElementById("mode");
+
+    // восстановление истории
+    const saved = JSON.parse(localStorage.getItem("chatHistory") || "[]");
+    saved.forEach(m => appendMessage(m.sender, m.text, false));
+
+ async function ask() {
+  const query = document.getElementById("query").value.trim();
+  if (!query) return;
+
+  // 🧹 очищаем старую историю и интерфейс
+  localStorage.removeItem("chatHistory");
+  chat.innerHTML = "";
+
+  const mode = modeSelect.value;
+  appendMessage("user", `${query}\n(${mode === "accurate" ? "🧠 Точный" : "⚡ Быстрый"} режим)`);
+  save("user", query);
+  document.getElementById("query").value = "";
+
+
+      appendMessage("bot", "⌛ Обрабатываю запрос...");
+      chat.scrollTop = chat.scrollHeight;
+
+      try {
+        const res = await fetch(API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query, top_k: mode === "accurate" ? 20 : 5, top_n: 5 })
+        });
+        const data = await res.json();
+        chat.lastElementChild.remove();
+
+        const answerText = `🧠 ${data.answer}\n\n📚 Источники:\n` +
+          data.sources.map((s, i) => `[${i+1}] ${s.text.slice(0,150)}...`).join("\n");
+        appendMessage("bot", answerText);
+        save("bot", answerText);
+      } catch (err) {
+        chat.lastElementChild.remove();
+        appendMessage("bot", "❌ Ошибка соединения с API\n" + err);
+        save("bot", "Ошибка соединения с API");
+      }
+    }
+
+    function appendMessage(sender, text, scroll = true) {
+      const msg = document.createElement("div");
+      msg.className = "msg";
+      msg.innerHTML = `<div class="${sender}">${sender === "user" ? "🧑 Вы" : ""}</div>
+                       <div class="bot">${text}</div>`;
+      chat.appendChild(msg);
+      if (scroll) chat.scrollTop = chat.scrollHeight;
+    }
+
+    function save(sender, text) {
+      const history = JSON.parse(localStorage.getItem("chatHistory") || "[]");
+      history.push({ sender, text });
+      localStorage.setItem("chatHistory", JSON.stringify(history));
+    }
+  </script>
+</body>
+</html>

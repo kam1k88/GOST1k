@@ -1,0 +1,31 @@
+# Исключаем базу Chroma
+chroma_db/
+nano .gitattributes
+# Принудительно храним всё в UTF-8 и с LF (Linux-style)
+* text eol=lf working-tree-encoding=UTF-8
+
+# Для PowerShell и BAT-файлов оставляем CRLF, чтобы работали в Windows
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+
+# Для Python, YAML, Docker и конфигов - строго LF
+*.py text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sh text eol=lf
+*.env text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.html text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.csv text eol=lf
+
+
+# Документацию и временные файлы
+docs/
+*.log
+*.tmp
+__pycache__/
+.env
+.venv/

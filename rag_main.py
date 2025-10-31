@@ -1,4 +1,6 @@
 import os
+from dotenv import load_dotenv
+load_dotenv()
 import re
 import asyncio
 import httpx
@@ -97,13 +99,14 @@ def rerank_docs(q, docs):
 
 
 # === Генерация через Ollama ===
-async def ollama_generate(prompt, model="Qwen2:7b-instruct-q4_K_M"):
+async def ollama_generate(prompt, model="qwen2.5:7b-instruct-q4_K_M"):
     torch.cuda.empty_cache()
     async with httpx.AsyncClient(timeout=300.0) as c:
         try:
+            ollama_host = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
             r = await c.post(
-                "http://127.0.0.1:11434/api/generate",
-                json={"model": model, "prompt": prompt, "stream": False},
+                f"{ollama_host}/api/generate",
+		json={"model": model, "prompt": prompt, "stream": False},
             )
             data = r.json()
             if "response" in data and data["response"].strip():
@@ -158,9 +161,9 @@ async def answer(query: str):
 
     intro = (
         "Ты — эксперт по информационной безопасности. "
-        "Отвечай строго в контексте нормативных документов ТК 362 'Защита информации'. "
+        "Отвечай **только на русском языке**, строго в контексте нормативных документов ТК 362 'Защита информации'. "
         "Опирайся на требования и рекомендации ГОСТ, СТО, РД. "
-        "Формулируй ответ кратко и по существу."
+        "Формулируй ответ кратко и по существу, без перевода или повторов на других языках."
     )
 
     wc = len(query.split())
@@ -187,6 +190,25 @@ async def answer(query: str):
     torch.cuda.empty_cache()
     return ans
 
+
+def process_query(query: str, mode: str = "structured"):
+    """
+    Универсальная обёртка для вызова RAG из других модулей (API, UI).
+    """
+    try:
+        # Проверка на пустые запросы
+        if not query or not query.strip():
+            return "[⚠️] Пустой запрос"
+
+        # Асинхронный запуск
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(answer(query))
+        loop.close()
+
+        return result
+    except Exception as e:
+        return f"[❌] Ошибка process_query: {e}"
 
 # === CLI ===
 if __name__ == "__main__":
