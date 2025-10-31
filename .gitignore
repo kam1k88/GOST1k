@@ -1,11 +1,28 @@
-# Исключаем базу Chroma
-chroma_db/
-
-# Документацию и временные файлы
-docs/
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
 *.log
 *.tmp
-__pycache__/
-.env
-.venv/
+
+# --- Среды ---
 venv/
+.venv/
+
+# --- Данные ---
+chroma_db/
+logs/
+docs/*.pdf
+docs/*.docx
+
+# --- Системные ---
+.env
+*.lnk
+*.bat
+*.ps1
+*.zip
+*.jpg
+*.png
+.DS_Store
+Thumbs.db
