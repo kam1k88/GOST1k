@@ -1,3 +1,0 @@
-function gost1k {
-    & "C:\Users\kam1k88\GOST1k\venv\Scripts\python.exe" "C:\Users\kam1k88\GOST1k\gost1k.py" @args
-}
