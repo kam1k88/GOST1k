@@ -99,7 +99,7 @@
 | **Ollama async** | ✅ | Локальный LLM с асинхронной генерацией |
 | **GPU warmup** | ✅ | Прогрев CUDA при старте |
 | **логирование** | ✅ | Все запросы и ответы пишутся в `logs/gost1k.log` |
-
+query → dense + sparse retrieve → fusion (RRF) → rerank-1 → rerank-2 → generate → log
 ---
 
 ## 🚀 Быстрый старт
