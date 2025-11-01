@@ -106,7 +106,7 @@ query → dense + sparse retrieve → fusion (RRF) → rerank-1 → rerank-2 →
 1.Клонировать проект:
    ```bash
    git clone https://github.com/kam1k88/GOST1k.git
-   cd GOST1k
+   cd GOST1k```
 2.Создать окружение и установить зависимости:   
 python -m venv venv
 venv\Scripts\activate
