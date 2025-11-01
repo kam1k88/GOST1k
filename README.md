@@ -23,7 +23,7 @@
 
 <img width="1837" height="729" alt="image" src="https://github.com/user-attachments/assets/2314abf8-e169-4d55-bf00-08fa6ae3caff" />
 🧪 Примеры боевых 
-[QA.pdf](https://github.com/user-attachments/files/23286370/QA.pdf)
+[QA.pdf](https://github.com/user-attachments/files/23286418/QA.pdf)
 от простых к сложным.
 
 
