@@ -22,7 +22,8 @@
 
 
 <img width="1837" height="729" alt="image" src="https://github.com/user-attachments/assets/2314abf8-e169-4d55-bf00-08fa6ae3caff" />
-
+🧪 Примеры боевых
+[QA.pdf](https://github.com/user-attachments/files/23286370/QA.pdf)
 
 
 ---
@@ -198,8 +199,6 @@ GOST1k — это минималистичная, автономная и пол
 
 Такой подход быстрее, надёжнее и идеально подходит для on-prem сред, где важна безопасность и воспроизводимость.
 ---
-🧪 Примеры боевых QA
-[QA.pdf](https://github.com/user-attachments/files/23286370/QA.pdf)
 
 📘 Автор Аркадий Максимов (kam1k88)
 Создатель проекта GOST1k — локального RAG-поисковика по любой регуляторке и стандартам ИБ.
