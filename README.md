@@ -13,7 +13,7 @@
 |:-:|-----------------------------|:----------------:|--------------|
 | 1 | **Basic Retrieval** (retrieval from vector DB) | ✅ | Используется ChromaDB с локальными эмбеддингами |
 | 2 | **Context Re-Retrieval** (multi-stage retrieval) | ✅ | Двухступенчатый Rerank: 40→15→5 |
-| 3 | **Context Window Management** | ⚙️ Частично | LLM (Qwen 2.5-7B) получает оптимизированный контекст из top-5 фрагментов |
+| 3 | **Context Window Management** | ⚙️ Частично | LLM (Qwen 2.5-7B-q4_K_M) получает оптимизированный контекст из top-5 фрагментов  настраивается в ollama 16k |
 | 4 | **Embedding Normalization** | ✅ | Включена через BGEM3FlagModel |
 | 5 | **Chunking Optimization** (fixed-size / overlapping) | ✅ | Реализовано: CHUNK_SIZE = 512, OVERLAP = 128 |
 | 6 | **Semantic / Dynamic Chunking** | ⚙️ Частично | Пока фиксированные чанки; можно добавить семантическое деление |
