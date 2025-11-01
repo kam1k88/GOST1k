@@ -22,7 +22,7 @@
 | 9 | **Hybrid Search (Dense + Sparse)** | ✅ | Полноценный гибрид через BGE-M3 (dense + sparse + lexical) |
 | 10 | **Reciprocal Rank Fusion (RRF)** | ✅ | Используется при объединении dense и sparse результатов |
 | 11 | **Cross-Encoder Reranking** | ✅ | `BAAI/bge-reranker-base` уточняет выдачу после fusion |
-| 12 | **Multi-Hop Retrieval** | ❌ | Нет цепочки уточняющих запросов |
+| 12 | **Multi-Hop Retrieval** | ❌ | Нет цепочки уточняющих запросов. В ChromaDB замедляет генерацию в 2 раза, выдача ±5% |
 | 13 | **Contextual Merging / Aggregation** | ⚙️ Частично | Формирование итогового контекста перед LLM |
 | 14 | **Answer Verification** | ⚙️ | Актуально только для LLM-поиска (GPT-retrieval); здесь retrieval основан на документах и reranker’е, верификация не нужна |
 | 15 | **Source Attribution / Citation** | ⚙️ Частично | В логах сохраняются источники (можно вывести в UI) |
