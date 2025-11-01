@@ -7,40 +7,46 @@
 Есть возможности роста: улучшение разбиения документа (semantic chunking), усиление обработки запросов (query transformation), извлечение релевантных сегментов из документов, обратная связь/адаптация, объясняемость.
 В README ты можешь отметить: “использованы техники hybrid retrieval, fusion, reranking” и “внедрена on-prem архитектура без зависимостей от LangChain”.
 > 🔒 **Фокус:** достоверное извлечение информации из источников, без "галлюцинаций" и генерации несуществующих данных.
+## 🔬 Реализованные техники RAG (по классификации NirDiamant/RAG_Techniques)
+
+| № | Техника из RAG_Techniques | Статус в GOST1k | Комментарий |
+|:-:|-----------------------------|:----------------:|--------------|
+| 1 | **Basic Retrieval** (retrieval from vector DB) | ✅ | Используется ChromaDB с локальными эмбеддингами |
+| 2 | **Context Re-Retrieval** (multi-stage retrieval) | ✅ | Двухступенчатый Rerank: 40→15→5 |
+| 3 | **Context Window Management** | ⚙️ Частично | LLM (Qwen 2.5-7B) получает оптимизированный контекст из top-5 фрагментов |
+| 4 | **Embedding Normalization** | ✅ | Включена через BGEM3FlagModel |
+| 5 | **Chunking Optimization** (fixed-size / overlapping) | ✅ | Реализовано: CHUNK_SIZE = 512, OVERLAP = 128 |
+| 6 | **Semantic / Dynamic Chunking** | ⚙️ Частично | Пока фиксированные чанки; можно добавить семантическое деление |
+| 7 | **Query Transformation** (reformulation, decomposition) | ❌ | Не используется: при узких регуляторных запросах переформулирование ломает термины; BGE-M3 справляется без перефразирования |
+| 8 | **Multi-Query Expansion** | ❌ | Не требуется: BGE-M3 уже содержит lexical + sparse + dense fusion внутри, что делает multi-query бессмысленным |
+| 9 | **Hybrid Search (Dense + Sparse)** | ✅ | Полноценный гибрид через BGE-M3 (dense + sparse + lexical) |
+| 10 | **Reciprocal Rank Fusion (RRF)** | ✅ | Используется при объединении dense и sparse результатов |
+| 11 | **Cross-Encoder Reranking** | ✅ | `BAAI/bge-reranker-base` уточняет выдачу после fusion |
+| 12 | **Multi-Hop Retrieval** | ❌ | Нет цепочки уточняющих запросов |
+| 13 | **Contextual Merging / Aggregation** | ⚙️ Частично | Формирование итогового контекста перед LLM |
+| 14 | **Answer Verification** | ⚙️ | Актуально только для LLM-поиска (GPT-retrieval); здесь retrieval основан на документах и reranker’е, верификация не нужна |
+| 15 | **Source Attribution / Citation** | ⚙️ Частично | В логах сохраняются источники (можно вывести в UI) |
+| 16 | **Retrieval Fusion** (multi-model / multi-db) | ✅ | Dense + Sparse + RRF = полноценный fusion retrieval |
+| 17 | **On-Prem Architecture** | ✅ | Полностью локально: без LangChain, API и облаков |
+| 18 | **RAG with Feedback Loop / Adaptive Retrieval** | ✅ | Реализован обратный цикл логирования запросов и контекста (через `logs/gost1k.log`) |
+| 19 | **Model Ensemble** (several retrievers / LLMs) | ⚙️ Частично | Один retriever и один reranker, но каскад dense → rerank → LLM можно считать частичным ансамблем |
+| 20 | **Caching / Warmup Optimization** | ✅ | Прогрев GPU при старте (`warmup`-блок) |
+| 21 | **Low VRAM Optimization (FP16)** | ✅ | FP16 включён в BGE-M3 |
+| 22 | **Explainable Retrieval (Why selected)** | ⚙️ Частично | Можно вывести топ-фрагменты в UI |
+| 23 | **Context Compression** | ⚙️ Частично | Топ-5 лучших фрагментов сокращают ввод для LLM |
+| 24 | **RAG Evaluation Metrics (Recall@K, MRR)** | ❌ | Не реализовано (пока нет оценки качества) |
+| 25 | **RAG Guardrails / Safety Filters** | ⚙️ Базовые | Без fine-tune и без внешних фильтров; регуляторные документы безопасны, фильтрация не требуется |
+| 26 | **Retriever Fusion with Sparse Model** | ✅ | Встроено в BGE-M3 (dense + BM25-like sparse) |
+| 27 | **Async Pipeline / Parallel Retrieval** | ✅ | Асинхронная логика через asyncio и httpx |
+| 28 | **LLM Response Postprocessing** | ⚙️ Частично | Ответ просто логируется, без дополнительного редактирования |
+| 29 | **Fully Offline Execution** | ✅ | Всё выполняется локально (Ollama + ChromaDB + torch) |
+| 30 | **Explainable UI** | ⚙️ Частично | Streamlit-интерфейс с логами; можно добавить вывод источников |
+
 ---
-|  №  | Техника из RAG_Techniques                               | Статус в GOST1k | Комментарий                                                              |
-| :-: | ------------------------------------------------------- | :-------------: | ------------------------------------------------------------------------ |
-|  1  | **Basic Retrieval** (retrieval from vector DB)          |        ✅        | Используется ChromaDB с локальными эмбеддингами                          |
-|  2  | **Context Re-Retrieval** (multi-stage retrieval)        |        ✅        | Двухступенчатый Rerank: 40→15→5                                          |
-|  3  | **Context Window Management**                           |   ⚙️ Частично   | LLM (Qwen 2.5-7B) получает оптимизированный контекст из top-5 фрагментов |
-|  4  | **Embedding Normalization**                             |        ✅        | Включена через BGEM3FlagModel                                            |
-|  5  | **Chunking Optimization** (fixed-size / overlapping)    |        ✅        | Реализовано: CHUNK_SIZE=512, OVERLAP=128                                 |
-|  6  | **Semantic / Dynamic Chunking**                         |   ⚙️ Частично   | Пока фиксированные чанки; можно добавить семантическое деление           |
-|  7  | **Query Transformation** (reformulation, decomposition) |        ❌        | Запросы не переформулируются автоматически                               |
-|  8  | **Multi-Query Expansion**                               |        ❌        | Пока одна формулировка запроса                                           |
-|  9  | **Hybrid Search (Dense + Sparse)**                      |        ✅        | Полноценный гибрид через BGE-M3 (dense + sparse + lexical)               |
-|  10 | **Reciprocal Rank Fusion (RRF)**                        |        ✅        | Используется при объединении dense и sparse результатов                  |
-|  11 | **Cross-Encoder Reranking**                             |        ✅        | `BAAI/bge-reranker-base` уточняет выдачу после fusion                    |
-|  12 | **Multi-Hop Retrieval**                                 |        ❌        | Нет цепочки уточняющих запросов                                          |
-|  13 | **Contextual Merging / Aggregation**                    |   ⚙️ Частично   | Формирование итогового контекста перед LLM                               |
-|  14 | **Answer Verification**                                 |        ❌        | Ответ не проходит верификацию отдельным этапом                           |
-|  15 | **Source Attribution / Citation**                       |   ⚙️ Частично   | В логах сохраняются источники (можно вывести в UI)                       |
-|  16 | **Retrieval Fusion** (multi-model / multi-db)           |        ✅        | Dense + Sparse + RRF = полноценный fusion retrieval                      |
-|  17 | **On-Prem Architecture**                                |        ✅        | Полностью локально: без LangChain, API и облаков                         |
-|  18 | **RAG with Feedback Loop / Adaptive Retrieval**         |        ❌        | Пока без пользовательской коррекции                                      |
-|  19 | **Model Ensemble** (several retrievers/LLMs)            |        ❌        | Используется одна модель для каждого этапа                               |
-|  20 | **Caching / Warmup Optimization**                       |        ✅        | Прогрев GPU при старте (`warmup` блок)                                   |
-|  21 | **Low VRAM Optimization (FP16)**                        |        ✅        | FP16 включён в BGE-M3                                                    |
-|  22 | **Explainable Retrieval (Why selected)**                |   ⚙️ Частично   | Можно вывести топ-фрагменты в UI                                         |
-|  23 | **Context Compression**                                 |   ⚙️ Частично   | Топ-5 лучших фрагментов сокращают ввод для LLM                           |
-|  24 | **RAG Evaluation Metrics (Recall@K, MRR)**              |        ❌        | Не реализовано (пока нет оценки качества)                                |
-|  25 | **RAG Guardrails / Safety Filters**                     |        ❌        | Нет семантической фильтрации, т.к. документы нейтральны                  |
-|  26 | **Retriever Fusion with Sparse Model**                  |        ✅        | Встроено в BGE-M3 (dense + BM25-like sparse)                             |
-|  27 | **Async Pipeline / Parallel Retrieval**                 |        ✅        | Асинхронная логика через asyncio и httpx                                 |
-|  28 | **LLM Response Postprocessing**                         |   ⚙️ Частично   | Ответ просто логируется, без дополнительного редактирования              |
-|  29 | **Fully Offline Execution**                             |        ✅        | Всё выполняется локально (Ollama + ChromaDB + torch)                     |
-|  30 | **Explainable UI**                                      |   ⚙️ Частично   | Streamlit UI с логами, можно добавить вывод источников                   |
----
+
+✅ **Реализовано полностью:** Hybrid Retrieval, RRF Fusion, Dense+Sparse Embeddings, Cross-Encoder Rerank, Async Pipeline, FP16, On-Prem, Warmup.  
+⚙️ **Частично реализовано:** Chunking, Explainability, Feedback Loop, Citation, Context Compression.  
+❌ **Не используется (по техническим причинам или не требуется):** Multi-Query, Query Transform, Answer Verification для LLM-поиска, Semantic Feedback через LLM.  
 
 ## ⚙️ Основные возможности
 
