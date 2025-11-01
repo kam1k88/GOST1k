@@ -35,7 +35,7 @@
 | 22 | **Explainable Retrieval (Why selected)** | ⚙️ Частично | Можно вывести топ-фрагменты в UI |
 | 23 | **Context Compression** | ⚙️ Частично | Топ-10 лучших фрагментов сокращают ввод для LLM |
 | 24 | **RAG Evaluation Metrics (Recall@K, MRR)** | ❌ | Не реализовано (пока нет оценки качества) |
-| 25 | **RAG Guardrails / Safety Filters** | ⚙️ Базовые | Без fine-tune и без внешних фильтров; регуляторные документы безопасны, фильтрация не требуется |
+| 25 | **RAG Guardrails / Safety Filters** | ⚙️ Базовые | фильтрация до LLM; регуляторные документы безопасны, фильтрация не требуется |
 | 26 | **Retriever Fusion with Sparse Model** | ✅ | Встроено в BGE-M3 (dense + BM25-like sparse) |
 | 27 | **Async Pipeline / Parallel Retrieval** | ✅ | Асинхронная логика через asyncio и httpx |
 | 28 | **LLM Response Postprocessing** | ⚙️ Частично | Ответ просто логируется, без дополнительного редактирования |
