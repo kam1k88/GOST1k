@@ -103,19 +103,21 @@ query → dense + sparse retrieve → fusion (RRF) → rerank-1 → rerank-2 →
 ---
 
 ## 🚀 Быстрый старт
-1.Клонировать проект:
-   ```bash
-   git clone https://github.com/kam1k88/GOST1k.git
-   cd GOST1k
-   ```
-2.Создать окружение и установить зависимости:   
-python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
-3.Запустить индексацию документов из docs:
-python ingest.py --rebuild
-4.Запустить интерфейс:
-streamlit run ui.py
+
+| Шаг | Команда | Описание |
+|-----|----------|-----------|
+| **1. Клонировать проект** | ```bash<br>git clone https://github.com/kam1k88/GOST1k.git<br>cd GOST1k``` | Клонирование репозитория и переход в директорию проекта |
+| **2. Создать окружение и установить зависимости** | ```bash<br>python -m venv venv<br>venv\Scripts\activate<br>pip install -r requirements.txt``` | Создание виртуального окружения и установка пакетов |
+| **3. Индексация документов из папки `docs/`** | ```bash<br>python ingest.py --rebuild``` | Построение базы ChromaDB с эмбеддингами |
+| **4. Запустить интерфейс** | ```bash<br>streamlit run ui.py``` | Запуск веб-интерфейса Streamlit |
+| **5. Открыть в браузере** | [http://localhost:8501](http://localhost:8501) | Интерфейс доступен локально |
+
+---
+
+💡 **Примечание:**  
+Все действия выполняются **локально**, без интернета и облаков.  
+ChromaDB хранит эмбеддинги и документы on-prem, полностью автономно.
+
 ---
 🔒 Приватность
 
