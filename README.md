@@ -3,11 +3,42 @@
 **GOST1k** — автономная офлайн-система для **поиска, анализа и сопоставления регуляторных документов**,  
 включая **ГОСТ, СТО, РД, ФСТЭК, Банк России, ISO, НПА и ТК 362**.
 
-Система построена на принципах **RAG (Retrieval-Augmented Generation)**  
-и предназначена для **точной и воспроизводимой обработки нормативных текстов**  
-без интернета, без облаков и без внешних API.  
-
+Система построена на принципах hybrid retrieval + fusion, reranking, dense+lexical embeddings, offline on-prem архитектуру.
+Есть возможности роста: улучшение разбиения документа (semantic chunking), усиление обработки запросов (query transformation), извлечение релевантных сегментов из документов, обратная связь/адаптация, объясняемость.
+В README ты можешь отметить: “использованы техники hybrid retrieval, fusion, reranking” и “внедрена on-prem архитектура без зависимостей от LangChain”.
 > 🔒 **Фокус:** достоверное извлечение информации из источников, без "галлюцинаций" и генерации несуществующих данных.
+|  №  | Техника из RAG_Techniques                               | Статус в GOST1k | Комментарий                                                              |
+| :-: | ------------------------------------------------------- | :-------------: | ------------------------------------------------------------------------ |
+|  1  | **Basic Retrieval** (retrieval from vector DB)          |        ✅        | Используется ChromaDB с локальными эмбеддингами                          |
+|  2  | **Context Re-Retrieval** (multi-stage retrieval)        |        ✅        | Двухступенчатый Rerank: 40→15→5                                          |
+|  3  | **Context Window Management**                           |   ⚙️ Частично   | LLM (Qwen 2.5-7B) получает оптимизированный контекст из top-5 фрагментов |
+|  4  | **Embedding Normalization**                             |        ✅        | Включена через BGEM3FlagModel                                            |
+|  5  | **Chunking Optimization** (fixed-size / overlapping)    |        ✅        | Реализовано: CHUNK_SIZE=512, OVERLAP=128                                 |
+|  6  | **Semantic / Dynamic Chunking**                         |   ⚙️ Частично   | Пока фиксированные чанки; можно добавить семантическое деление           |
+|  7  | **Query Transformation** (reformulation, decomposition) |        ❌        | Запросы не переформулируются автоматически                               |
+|  8  | **Multi-Query Expansion**                               |        ❌        | Пока одна формулировка запроса                                           |
+|  9  | **Hybrid Search (Dense + Sparse)**                      |        ✅        | Полноценный гибрид через BGE-M3 (dense + sparse + lexical)               |
+|  10 | **Reciprocal Rank Fusion (RRF)**                        |        ✅        | Используется при объединении dense и sparse результатов                  |
+|  11 | **Cross-Encoder Reranking**                             |        ✅        | `BAAI/bge-reranker-base` уточняет выдачу после fusion                    |
+|  12 | **Multi-Hop Retrieval**                                 |        ❌        | Нет цепочки уточняющих запросов                                          |
+|  13 | **Contextual Merging / Aggregation**                    |   ⚙️ Частично   | Формирование итогового контекста перед LLM                               |
+|  14 | **Answer Verification**                                 |        ❌        | Ответ не проходит верификацию отдельным этапом                           |
+|  15 | **Source Attribution / Citation**                       |   ⚙️ Частично   | В логах сохраняются источники (можно вывести в UI)                       |
+|  16 | **Retrieval Fusion** (multi-model / multi-db)           |        ✅        | Dense + Sparse + RRF = полноценный fusion retrieval                      |
+|  17 | **On-Prem Architecture**                                |        ✅        | Полностью локально: без LangChain, API и облаков                         |
+|  18 | **RAG with Feedback Loop / Adaptive Retrieval**         |        ❌        | Пока без пользовательской коррекции                                      |
+|  19 | **Model Ensemble** (several retrievers/LLMs)            |        ❌        | Используется одна модель для каждого этапа                               |
+|  20 | **Caching / Warmup Optimization**                       |        ✅        | Прогрев GPU при старте (`warmup` блок)                                   |
+|  21 | **Low VRAM Optimization (FP16)**                        |        ✅        | FP16 включён в BGE-M3                                                    |
+|  22 | **Explainable Retrieval (Why selected)**                |   ⚙️ Частично   | Можно вывести топ-фрагменты в UI                                         |
+|  23 | **Context Compression**                                 |   ⚙️ Частично   | Топ-5 лучших фрагментов сокращают ввод для LLM                           |
+|  24 | **RAG Evaluation Metrics (Recall@K, MRR)**              |        ❌        | Не реализовано (пока нет оценки качества)                                |
+|  25 | **RAG Guardrails / Safety Filters**                     |        ❌        | Нет семантической фильтрации, т.к. документы нейтральны                  |
+|  26 | **Retriever Fusion with Sparse Model**                  |        ✅        | Встроено в BGE-M3 (dense + BM25-like sparse)                             |
+|  27 | **Async Pipeline / Parallel Retrieval**                 |        ✅        | Асинхронная логика через asyncio и httpx                                 |
+|  28 | **LLM Response Postprocessing**                         |   ⚙️ Частично   | Ответ просто логируется, без дополнительного редактирования              |
+|  29 | **Fully Offline Execution**                             |        ✅        | Всё выполняется локально (Ollama + ChromaDB + torch)                     |
+|  30 | **Explainable UI**                                      |   ⚙️ Частично   | Streamlit UI с логами, можно добавить вывод источников                   |
 
 ---
 
