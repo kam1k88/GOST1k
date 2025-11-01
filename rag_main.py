@@ -1,16 +1,20 @@
+import sys; sys.stdout.reconfigure(encoding='utf-8')
 import os
-from dotenv import load_dotenv
-load_dotenv()
 import re
 import asyncio
 import httpx
+import numpy as np
+import time
 from datetime import datetime
-from sentence_transformers import SentenceTransformer, CrossEncoder
+from dotenv import load_dotenv
+from FlagEmbedding import BGEM3FlagModel
+from sentence_transformers import CrossEncoder
 import chromadb
 import torch
 
 # === Общие настройки ===
 os.environ["CHROMA_TELEMETRY"] = "False"
+load_dotenv()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CHROMA_DIR = os.path.join(BASE_DIR, "chroma_db")
@@ -30,8 +34,12 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"[⚙️] Используется устройство: {DEVICE.upper()}")
 
 # === Инициализация моделей ===
-embedder = SentenceTransformer("intfloat/multilingual-e5-small", device=DEVICE)
+embedder = BGEM3FlagModel("BAAI/bge-m3", use_fp16=True, device=DEVICE)
 reranker = CrossEncoder("BAAI/bge-reranker-base", device=DEVICE)
+
+# === Прогрев GPU ===
+_ = embedder.encode(["warmup"], batch_size=1, max_length=128)
+torch.cuda.empty_cache()
 
 # === Инициализация клиента Chroma ===
 client = chromadb.PersistentClient(path=CHROMA_DIR)
@@ -44,12 +52,10 @@ def clean_text(t):
     return t.strip()
 
 def normalize_query(q: str) -> str:
-    """Добавляет E5-префикс для лучшего семантического поиска"""
     return f"query: {q.strip().lower()}"
 
 def format_doc(d: str) -> str:
     return f"passage: {d.strip()}"
-
 
 # === Проверка коллекции ===
 def check_collection():
@@ -59,7 +65,7 @@ def check_collection():
         print(f"[📦] Всего фрагментов: {count}")
         peek = collection.peek()
         if not peek or "documents" not in peek or not peek["documents"]:
-            print("[⚠️] Коллекция пуста или не содержит документов.")
+            print("[⚠️] Коллекция пуста.")
             return
         doc = peek["documents"][0][0] if isinstance(peek["documents"][0], list) else peek["documents"][0]
         meta = peek["metadatas"][0][0] if isinstance(peek["metadatas"][0], list) else peek["metadatas"][0]
@@ -68,78 +74,116 @@ def check_collection():
     except Exception as e:
         print(f"[❌] Ошибка при проверке коллекции: {e}")
 
-
-# === Поиск ===
-def dense_query(q, top_k=50):
-    """Dense-поиск по эмбеддингам E5"""
+# === Гибридный поиск (dense + sparse fusion) ===
+def hybrid_search(q, top_k=50, alpha=0.65):
+    """
+    alpha - вес dense. 0.65 оптимально для ГОСТов (семантика важнее, но термины учитываем).
+    """
     try:
-        q_emb = embedder.encode([normalize_query(q)], normalize_embeddings=True)
-        results = collection.query(query_embeddings=q_emb, n_results=top_k)
-        if not results.get("documents") or not results["documents"][0]:
-            print("[⚠️] Пустая коллекция или нет совпадений.")
-            return []
-        docs = [
-            {"text": d, "source": s}
-            for d, s in zip(results["documents"][0], results["metadatas"][0])
-        ]
-        return docs
-    except Exception as e:
-        print(f"[❌] Ошибка dense_query: {e}")
-        return []
+        t0 = time.time()
 
+        # 1) гибридные эмбеддинги запроса
+        #   в FlagEmbedding>=1.3 не нужно указывать normalize_embeddings,
+        #   и аргументы должны быть return_dense, return_sparse
+        res = embedder.encode([q], return_dense=True, return_sparse=True)
+        dense_vec = res["dense_vecs"]
+        sparse_weights = res["lexical_weights"][0] if "lexical_weights" in res else {}
+
+        # 2) dense-кандидаты из Chroma
+        cres = collection.query(query_embeddings=dense_vec, n_results=top_k * 2)
+        docs0 = cres.get("documents", [[]])[0]
+        metas0 = cres.get("metadatas", [[]])[0]
+        dists0 = cres.get("distances", [[]])[0]
+
+        if not docs0:
+            print("[⚠️] Коллекция пуста или нет релевантных фрагментов.")
+            return []
+
+        # === dense part ===
+        dense_scores = {}
+        for m, dist in zip(metas0, dists0):
+            sim = 1.0 - float(dist)
+            dense_scores[m["source"]] = max(dense_scores.get(m["source"], 0.0), sim)
+
+        # === sparse part ===
+        sparse_scores = {}
+        for doc, meta in zip(docs0, metas0):
+            if not sparse_weights:
+                continue
+            score = sum(sparse_weights.get(tok, 0.0) for tok in doc.split())
+            sparse_scores[meta["source"]] = max(sparse_scores.get(meta["source"], 0.0), score)
+
+        # === fusion ===
+        fused = {}
+        keys = set(dense_scores.keys()) | set(sparse_scores.keys())
+        for k in keys:
+            fused[k] = alpha * dense_scores.get(k, 0.0) + (1 - alpha) * sparse_scores.get(k, 0.0)
+
+        # === отладочные топы ===
+        if fused:
+            top_dense = sorted(dense_scores.items(), key=lambda x: x[1], reverse=True)[:3]
+            top_sparse = sorted(sparse_scores.items(), key=lambda x: x[1], reverse=True)[:3]
+            print("\n🧠 Top dense:")
+            [print(f"  {n}: {s:.3f}") for n, s in top_dense]
+            print("🪶 Top sparse:")
+            [print(f"  {n}: {s:.3f}") for n, s in top_sparse]
+
+        # === формируем итог ===
+        ranked_ids = [k for k, _ in sorted(fused.items(), key=lambda x: x[1], reverse=True)[:top_k]]
+        docs = [{"text": d, "source": s} for d, s in zip(docs0, metas0) if s["source"] in ranked_ids]
+
+        total_time = time.time() - t0
+        log_event(f"[⏱️] BGE-M3 hybrid dense+sparse: {total_time:.2f} сек ({len(docs)} docs)")
+        return docs
+
+    except Exception as e:
+        print(f"[❌] Ошибка hybrid_search: {e}")
+        log_event(f"[❌] Ошибка hybrid_search: {e}")
+        return []
 
 # === Реранкинг ===
 def rerank_docs(q, docs):
     if not docs:
         return []
+    t0 = time.time()
     pairs = [[normalize_query(q), format_doc(d["text"])] for d in docs]
     scores = reranker.predict(pairs)
     ranked = sorted(zip(docs, scores), key=lambda x: x[1], reverse=True)
+    rerank_time = time.time() - t0
+    log_event(f"[⏱️] Rerank: {rerank_time:.2f} сек ({len(docs)} docs)")
     return [r[0] for r in ranked]
 
-
 # === Генерация через Ollama ===
-async def ollama_generate(prompt, model="qwen2.5:7b-instruct-q4_K_M"):
+async def ollama_generate(prompt, model=None):
     torch.cuda.empty_cache()
+    model = model or os.getenv("OLLAMA_MODEL", "qwen2.5:7b-instruct-q4_K_M")
     async with httpx.AsyncClient(timeout=300.0) as c:
         try:
             ollama_host = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
-            r = await c.post(
-                f"{ollama_host}/api/generate",
-		json={"model": model, "prompt": prompt, "stream": False},
-            )
+            t0 = time.time()
+            r = await c.post(f"{ollama_host}/api/generate",
+                             json={"model": model, "prompt": prompt, "stream": False})
             data = r.json()
+            total_time = time.time() - t0
+            log_event(f"[⏱️] Ollama ответ: {total_time:.2f} сек")
             if "response" in data and data["response"].strip():
                 return data["response"].strip()
-            if "message" in data and isinstance(data["message"], dict):
-                return data["message"].get("content", "").strip()
-            text = data.get("output", "") or str(data)
-            if "CUDA error" in text:
-                print("[⚠️] CUDA error — fallback → Qwen2:1.5b-instruct")
-                torch.cuda.empty_cache()
-                return await ollama_generate(prompt, "Qwen2:1.5b-instruct")
-            return text.strip() if text else "[⚠️] Пустой ответ от Ollama"
+            return data.get("output", "") or str(data)
         except Exception as e:
-            if "CUDA" in str(e):
-                print("[⚠️] Ошибка CUDA — fallback → Qwen2:1.5b-instruct")
-                torch.cuda.empty_cache()
-                return await ollama_generate(prompt, "Qwen2:1.5b-instruct")
             return f"[⚠️] Ollama недоступна: {e}"
         finally:
             torch.cuda.empty_cache()
 
-
 # === Основная логика RAG ===
 async def answer(query: str):
+    t0 = time.time()
     print(f"[🔍] Запрос: {query}")
     sys_query = normalize_query(query)
-    print(f"[🧠] Сформировано: {sys_query}")
     log_event(f"\n[USER QUERY] {query}")
     log_event(f"[SYSTEM QUERY] {sys_query}")
 
-    docs = dense_query(sys_query)
+    docs = hybrid_search(sys_query)
     print(f"[~] Найдено кандидатов: {len(docs)}")
-    log_event(f"[CHROMA] Найдено кандидатов: {len(docs)}")
 
     if not docs:
         msg = "[⚠️] Нет совпадений в коллекции."
@@ -150,73 +194,29 @@ async def answer(query: str):
     reranked = rerank_docs(sys_query, docs)
     top_docs = reranked[:5]
 
-    print("\n[🏆] Топ-5 фрагментов:")
     for i, d in enumerate(top_docs, 1):
         snippet = clean_text(d["text"][:150])
         src = d.get("source", "?")
-        print(f"{i:>2}. {snippet} ...\n   [source={src}]")
-        log_event(f"[DOC {i}] {snippet} | source={src}")
+        print(f"{i:>2}. {snippet} ... [source={src}]")
 
     context = "\n\n".join([clean_text(d["text"][:800]) for d in top_docs])
 
     intro = (
         "Ты — эксперт по информационной безопасности и нормативным документам ТК 362 'Защита информации'. "
-        "Отвечай **только на русском языке** и **только в контексте нормативных источников** (ГОСТ, СТО, РД, приказы, положения). "
+        "Отвечай только на русском языке и только в контексте нормативных источников (ГОСТ, СТО, РД, приказы, положения). "
         "Используй приведённые ниже фрагменты документов как основное основание ответа. "
-        "Если контекст не содержит ответа — скажи об этом прямо, не выдумывай. "
-        "Формулируй ответ кратко и по существу, с приоритетом фактов и формулировок из ГОСТов. "
-        "В конце ответа, если возможно, укажи источник (например: ГОСТ Р 50739-95, п. 5.2). "
-        "Режимы работы: "
-        "- **summary-mode** — краткое резюме ключевых требований или положений; "
-        "- **analysis-mode** — развёрнутое объяснение смысла и применения нормативных требований, включая взаимосвязанные пункты; "
-        "- **compare-mode** — сравнение положений разных документов (указывать различия, совпадения и актуальные версии). "
-        "Если режим явно не указан, выбирай формат ответа исходя из запроса пользователя. "
-        "Избегай повторов и дословных цитат без необходимости, но сохраняй нормативную точность формулировок."
+        "Если контекст не содержит ответа — скажи об этом прямо. "
+        "Формулируй ответ кратко и по существу, с приоритетом фактов и формулировок из ГОСТов."
     )
 
-    wc = len(query.split())
-    mode = (
-        "reflective" if wc <= 3
-        else "structured" if wc <= 15
-        else "deep_analytic"
-    )
-    print(f"[🧩] Mode: {mode}")
-
-    prompt = f"""{intro}
-
-Вопрос: {query}
-
-Контекст:
-{context}
-
-Ответ:"""
+    mode = "deep_analytic" if len(query.split()) > 15 else "structured"
+    prompt = f"{intro}\n\nВопрос: {query}\n\nКонтекст:\n{context}\n\nОтвет:"
 
     ans = await ollama_generate(prompt)
-    print(f"\n[💡] Ответ сгенерирован:\n{ans}")
-    log_event(f"[ANSWER | {mode}] {ans}\n{'='*80}\n")
-
-    torch.cuda.empty_cache()
+    total_time = time.time() - t0
+    print(f"\n[💡] Ответ сгенерирован ({total_time:.2f} сек):\n{ans}")
+    log_event(f"[ANSWER | {mode}] ({total_time:.2f} сек)\n{ans}\n{'='*80}\n")
     return ans
-
-
-def process_query(query: str, mode: str = "structured"):
-    """
-    Универсальная обёртка для вызова RAG из других модулей (API, UI).
-    """
-    try:
-        # Проверка на пустые запросы
-        if not query or not query.strip():
-            return "[⚠️] Пустой запрос"
-
-        # Асинхронный запуск
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(answer(query))
-        loop.close()
-
-        return result
-    except Exception as e:
-        return f"[❌] Ошибка process_query: {e}"
 
 # === CLI ===
 if __name__ == "__main__":
