@@ -33,7 +33,7 @@
 | 20 | **Caching / Warmup Optimization** | ✅ | Прогрев GPU при старте (`warmup`-блок) |
 | 21 | **Low VRAM Optimization (FP16)** | ✅ | FP16 включён в BGE-M3 |
 | 22 | **Explainable Retrieval (Why selected)** | ⚙️ Частично | Можно вывести топ-фрагменты в UI |
-| 23 | **Context Compression** | ⚙️ Частично | Топ-5 лучших фрагментов сокращают ввод для LLM |
+| 23 | **Context Compression** | ⚙️ Частично | Топ-10 лучших фрагментов сокращают ввод для LLM |
 | 24 | **RAG Evaluation Metrics (Recall@K, MRR)** | ❌ | Не реализовано (пока нет оценки качества) |
 | 25 | **RAG Guardrails / Safety Filters** | ⚙️ Базовые | Без fine-tune и без внешних фильтров; регуляторные документы безопасны, фильтрация не требуется |
 | 26 | **Retriever Fusion with Sparse Model** | ✅ | Встроено в BGE-M3 (dense + BM25-like sparse) |
