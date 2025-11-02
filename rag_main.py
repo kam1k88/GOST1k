@@ -109,8 +109,33 @@ async def rerank_async(query, docs, top_k=10):
 
 # === Асинхронная генерация через Ollama ===
 async def ollama_generate(prompt):
-    url = "http://127.0.0.1:11501/api/generate"
+    import httpx, os
+    url = "http://127.0.0.1:11501/api/chat"
     model = os.getenv("OLLAMA_MODEL", "qwen2.5:7b-instruct-q4_K_M")
+
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": "Ты эксперт по информационной безопасности. Отвечай строго по контексту на русском языке."},
+            {"role": "user", "content": prompt}
+        ],
+        "stream": False
+    }
+
+    async with httpx.AsyncClient(timeout=300.0) as c:
+        try:
+            r = await c.post(url, json=payload)
+            data = r.json()
+            # новый формат: {"message":{"content": "..."}}
+            if "message" in data and "content" in data["message"]:
+                return data["message"]["content"].strip()
+            elif "response" in data:
+                return data["response"].strip()
+            else:
+                return "[⚠️] Ollama вернула пустой ответ"
+        except Exception as e:
+            return f"[⚠️] Ollama ошибка: {e}"
+
 
     async with httpx.AsyncClient(timeout=300.0) as c:
         try:
@@ -127,29 +152,43 @@ def clean(text: str) -> str:
     text = text.replace("\u200b", "").strip()
     return text
 
+import json
+
 async def answer(query):
     t0 = time.time()
     print(f"[🔍] Запрос: {query}")
     log(f"[USER] {query}")
 
+    # === Retrieval ===
+    t_r0 = time.time()
     docs = await hybrid_rrf(query, topk=50)
+    t_r = time.time() - t_r0
+    print(f"   ├─ [RRF] Retrieval: {t_r:.2f} сек ({len(docs)} docs)")
     if not docs:
         msg = "⚠️ Нет совпадений в коллекции."
         log(msg)
         return msg
 
-    # rerank 10
+    # === Rerank ===
+    t_re0 = time.time()
     top_docs = await rerank_async(query, docs, top_k=10)
+    t_re = time.time() - t_re0
+    print(f"   ├─ [RERANK] CrossEncoder: {t_re:.2f} сек (top {len(top_docs)})")
+
+    # === Context + LLM ===
     context = "\n\n".join(clean(d["text"][:800]) for d in top_docs)
-
-    intro = (
-        "Ты эксперт по информационной безопасности и стандартам ТК 362. Отвечай официально на русском языке."
-    )
-
+    intro = "Ты эксперт по информационной безопасности и стандартам ТК 362. Отвечай официально на русском языке."
     prompt = f"{intro}\n\nВопрос: {query}\n\nКонтекст:\n{context}\n\nОтвет:"
 
+    t_llm0 = time.time()
     ans = await ollama_generate(prompt)
+    t_llm = time.time() - t_llm0
+    print(f"   ├─ [LLM] Qwen2.5-7B: {t_llm:.2f} сек")
+
+    # === Финал ===
     total = time.time() - t0
+    print(f"[✅] Итог: {total:.2f} сек ({len(ans)} символов)\n")
     log(f"[ANS] ({total:.2f} сек)\n{ans}\n{'='*80}")
-    print(f"[💡] {ans}")
+
     return ans
+
