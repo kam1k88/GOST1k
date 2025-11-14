@@ -342,7 +342,7 @@ MIT License © 2025 Аркадий Максимов
 | 21 | **Low VRAM Optimization (FP16)** | ✅ | FP16 включён в BGE-M3 |
 | 22 | **Explainable Retrieval (Why selected)** | ⚙️ Частично | Можно вывести топ-фрагменты в UI |
 | 23 | **Context Compression** | ⚙️ Частично | Топ-10 лучших фрагментов сокращают ввод для LLM |
-| 24 | **RAG Evaluation Metrics (Recall@K, MRR)** | ❌ | Не реализовано (пока нет оценки качества) |
+| 24 | **RAG Evaluation Metrics(Оценка качества) | ✅ | ✅ | Self-CRAG вначале этого README |
 | 25 | **RAG Guardrails / Safety Filters** | ⚙️ Базовые | фильтрация до LLM; регуляторные документы безопасны, фильтрация не требуется |
 | 26 | **Retriever Fusion with Sparse Model** | ✅ | Встроено в BGE-M3 (dense + BM25-like sparse) |
 | 27 | **Async Pipeline / Parallel Retrieval** | ✅ | Асинхронная логика через asyncio и httpx |
