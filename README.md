@@ -1,4 +1,4 @@
-#  GOST1k👻🔍📖 -  Full Custom RAG по нормативам (Hybrid+Fusion default)
+#  GOST1k👻🔍📖 -  Full Custom RAG по нормативам (default Hybrid+Fusion)
 
 AI-комплаенс-платформа для системного контроля требований ГОСТ, РД, ISO, ФСТЭК/ФСБ, СТО БР ИБ и НПА.
 
