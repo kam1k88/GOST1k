@@ -96,18 +96,6 @@ https://github.com/user-attachments/files/23286418/QA.pdf
 | **BGE-M3**                                    | FlagModel-модель эмбеддингов (dense + sparse + lexical) | ~0.35 ГБ |
 | **BGE-BASE**                                  | CrossEncoder-reranker                                   | ~0.5 ГБ  |
 
----
-### 🔗 Зависимости
-torch
-chromadb
-FlagEmbedding
-sentence-transformers
-python-dotenv
-httpx
-fastapi
-streamlit
-
-
  ---
  
   ## 💬 > Self-CRAG - соотношение между retrieval-контентом и ответам модели
