@@ -23,6 +23,8 @@ https://github.com/user-attachments/files/23286418/QA.pdf
 
 
 
+
+Схема алгоритма
 ---
      ┌──────────────────────────────────────────┐
      │                UI (Streamlit)             │
