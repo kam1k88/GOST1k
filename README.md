@@ -128,7 +128,7 @@ https://github.com/user-attachments/files/23286418/QA.pdf
 
  ---
  
- ### 📊 Bench
+ ### 📊 Benchmark
   Self-CRAG - соотношение между retrieval-контентом и ответам модели
 
  | Self-CRAG                    |      |  Что значит                                                                                                                                       |
